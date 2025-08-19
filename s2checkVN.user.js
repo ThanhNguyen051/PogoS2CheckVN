@@ -3771,7 +3771,106 @@
 					a.id = 'artifactLink';
 				}
 			});
+			// Thêm chức năng đo khoảng cách giữa 2 điểm
+			const measureDistanceTool = {
+				active: false,
+				marker1: null,
+				marker2: null,
+				line: null,
 
+				// Công thức tính khoảng cách giữa 2 LatLng (haversine formula)
+				calculateDistance: function (latLng1, latLng2) {
+					const R = 6371e3; // Bán kính Trái Đất (mét)
+					const φ1 = latLng1.lat * Math.PI / 180;
+					const φ2 = latLng2.lat * Math.PI / 180;
+					const Δφ = (latLng2.lat - latLng1.lat) * Math.PI / 180;
+					const Δλ = (latLng2.lng - latLng1.lng) * Math.PI / 180;
+
+					const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+						Math.cos(φ1) * Math.cos(φ2) *
+						Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+					const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+					return Math.round(R * c); // Trả về khoảng cách (mét), làm tròn
+				},
+
+				// Xóa các marker và line tạm thời
+				clear: function () {
+					if (this.marker1) map.removeLayer(this.marker1);
+					if (this.marker2) map.removeLayer(this.marker2);
+					if (this.line) map.removeLayer(this.line);
+					this.marker1 = null;
+					this.marker2 = null;
+					this.line = null;
+				},
+
+				// Listener cho click bản đồ
+				onMapClick: function (e) {
+					if (!measureDistanceTool.active) return;
+
+					if (!measureDistanceTool.marker1) {
+						// Điểm đầu tiên
+						measureDistanceTool.marker1 = L.marker(e.latlng, {
+							icon: L.divIcon({ className: 'measure-point', html: '1', iconSize: [20, 20] })
+						}).addTo(map);
+					} else if (!measureDistanceTool.marker2) {
+						// Điểm thứ hai
+						measureDistanceTool.marker2 = L.marker(e.latlng, {
+							icon: L.divIcon({ className: 'measure-point', html: '2', iconSize: [20, 20] })
+						}).addTo(map);
+
+						// Vẽ đường nối
+						measureDistanceTool.line = L.polyline([measureDistanceTool.marker1.getLatLng(), measureDistanceTool.marker2.getLatLng()], {
+							color: 'red',
+							weight: 3,
+							dashArray: '5, 5'
+						}).addTo(map);
+
+						// Tính và hiển thị khoảng cách
+						const distance = measureDistanceTool.calculateDistance(measureDistanceTool.marker1.getLatLng(), measureDistanceTool.marker2.getLatLng());
+						dialog({
+							html: `<p>Khoảng cách giữa 2 điểm: <strong>${distance} mét</strong></p>`,
+							title: 'Khoảng cách',
+							buttons: {
+								'OK': function () {
+									measureDistanceTool.clear();
+									measureDistanceTool.active = false; // Tắt chế độ sau khi đo
+								}
+							}
+						});
+					}
+				}
+			};
+
+			// Thêm nút vào toolbox để kích hoạt chế độ đo
+			const buttonMeasure = document.createElement('a');
+			buttonMeasure.textContent = 'Đo khoảng cách';
+			buttonMeasure.title = 'Chọn 2 điểm trên bản đồ để đo khoảng cách';
+			buttonMeasure.addEventListener('click', function () {
+				measureDistanceTool.active = !measureDistanceTool.active;
+				measureDistanceTool.clear(); // Xóa nếu đang có
+				if (measureDistanceTool.active) {
+					alert('Chế độ đo khoảng cách đã bật. Click 2 điểm trên bản đồ.');
+				} else {
+					alert('Chế độ đo khoảng cách đã tắt.');
+				}
+			});
+			toolbox.appendChild(buttonMeasure);
+
+			// Thêm listener cho click bản đồ
+			map.on('click', measureDistanceTool.onMapClick);
+
+			// Thêm CSS cho marker (tùy chỉnh)
+			$('<style>').prop('type', 'text/css').html(`
+  .measure-point {
+    background: red;
+    color: white;
+    font-weight: bold;
+    text-align: center;
+    border-radius: 50%;
+    border: 1px solid white;
+  }
+`).appendTo('head');
 		};
 
 		function createCounter(title, type, callback) {
@@ -3815,78 +3914,7 @@
 		}
 
 		// PLUGIN END //////////////////////////////////////////////////////////
-		// Functionality to measure distance between two points
-		function addDistanceTool() {
-			let measuring = false;
-			let startPoint = null;
-			let startMarker = null;
-			let endMarker = null;
-			let polyline = null;
 
-			const pane = document.createElement('div');
-			pane.className = 'distance-pane';
-			pane.style.display = 'none';
-			pane.innerHTML = '<h3>Distance Tool</h3><p id="distance-info">Click the map to select the first point.</p><button onclick="toggleDistanceTool()">Stop Measuring</button>';
-
-			const toggleDistanceTool = () => {
-				measuring = !measuring;
-				if (measuring) {
-					startPoint = null;
-					if (startMarker) map.removeLayer(startMarker);
-					if (endMarker) map.removeLayer(endMarker);
-					if (polyline) map.removeLayer(polyline);
-					pane.style.display = 'block';
-					document.getElementById('distance-info').innerText = 'Click the map to select the first point.';
-				} else {
-					pane.style.display = 'none';
-					if (startMarker) map.removeLayer(startMarker);
-					if (endMarker) map.removeLayer(endMarker);
-					if (polyline) map.removeLayer(polyline);
-				}
-			};
-
-			const onMapClick = (e) => {
-				if (!measuring) return;
-
-				if (!startPoint) {
-					startPoint = e.latlng;
-					startMarker = L.marker(startPoint).addTo(map);
-					document.getElementById('distance-info').innerText = 'First point selected. Now click the second point.';
-				} else {
-					const endPoint = e.latlng;
-					endMarker = L.marker(endPoint).addTo(map);
-
-					// Create a polyline for visual feedback
-					polyline = L.polyline([startPoint, endPoint], { color: 'red' }).addTo(map);
-
-					// Calculate distance
-					const distanceInMeters = startPoint.distanceTo(endPoint);
-					document.getElementById('distance-info').innerText = `Distance: ${distanceInMeters.toFixed(2)} meters.`;
-
-					// Reset for a new measurement
-					startPoint = null;
-					if (startMarker) map.removeLayer(startMarker);
-					if (endMarker) map.removeLayer(endMarker);
-					if (polyline) map.removeLayer(polyline);
-					startMarker = L.marker(endPoint).addTo(map); // Keep the last point as the new start
-					startPoint = endPoint;
-				}
-			};
-
-			map.on('click', onMapClick);
-
-			// Add a button to the plugin control pane
-			const distanceButton = document.createElement('a');
-			distanceButton.textContent = 'Distance Tool';
-			distanceButton.onclick = () => toggleDistanceTool();
-			const toolbox = document.getElementById('toolbox');
-			if (toolbox) {
-				toolbox.appendChild(distanceButton);
-			}
-		}
-
-		// Call the function within setup
-		addDistanceTool();
 		setup.info = plugin_info; //add the script info data to the function as a property
 		// if IITC has already booted, immediately run the 'setup' function
 		if (window.iitcLoaded) {
